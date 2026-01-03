@@ -1,0 +1,45 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+#general
+torch==2.8.0
+torchaudio
+torchvision
+scipy
+numpy
+
+# audio encoder
+dasheng #https://github.com/XiaoMi/dasheng
+
+#text encoder
+requests #communication llama_cpp
+
+#image encoder
+hsemotion
+facenet-pytorch
+mediapy
+
+# TRM
+adam-atan2
+einops
+tqdm
+coolname
+pydantic
+argdantic
+wandb
+omegaconf
+hydra-core
+huggingface_hub
+packaging 
+ninja 
+wheel 
+setuptools 
+setuptools-scm
+pydantic-core
+huggingface_hub 
+numba
+
+#affichage
+matplotlib
+scikit-learn
+opencv-python
+sounddevice
+soundfile
