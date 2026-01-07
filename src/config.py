@@ -37,7 +37,7 @@ class Config:
     
     # --- Entraînement ---
     BATCH_SIZE = 32
-    NUM_EPOCHS = 10
+    NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # --- Paramètres Vidéo ---

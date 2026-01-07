@@ -1,118 +1,138 @@
 # Affective-TRM : Reconnaissance d'Émotion Multimodale Récursive
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red) ![Status](https://img.shields.io/badge/Status-Research_Prototype-purple)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue) ![PyTorch](https://img.shields.io/badge/PyTorch-2.8%2B-red) ![Status](https://img.shields.io/badge/Status-Research_Prototype-purple) ![HuggingFace](https://img.shields.io/badge/Model-HuggingFace-yellow)
 
-**Affective-TRM** est une architecture expérimentale de Deep Learning conçue pour la reconnaissance d'émotions en continu (Valence / Arousal) à partir de flux vidéo. 
+**Affective-TRM** est une architecture de Deep Learning conçue pour la reconnaissance d'émotions en continu (**Valence / Arousal**) à partir de flux vidéo temps réel.
 
 Contrairement aux approches classiques qui classifient une émotion en catégories discrètes (ex: "Colère", "Joie"), ce modèle projette l'état émotionnel dans un **espace latent continu** en fusionnant trois modalités : **Audio, Vidéo et Texte**.
 
+Le modèle est capable de tourner en temps réel avec une empreinte mémoire réduite grâce à son architecture récursive.
+
+---
+
 ## 🧠 Architecture du Modèle
 
-Le cœur du projet repose sur le **Tiny Recursive Reasoning Model (TRM)**. C'est une architecture hybride qui combine la puissance des Transformers avec l'efficacité séquentielle des RNNs.
+Le cœur du projet repose sur le **Tiny Recursive Reasoning Model (TRM)**. C'est une architecture hybride inspirée des travaux de Samsung SAIL, combinant la puissance des Transformers avec l'efficacité séquentielle des RNNs.
 
-### Points Clés de l'Architecture :
-1.  **Entrée Multimodale Massive (2816 dims)** :
-    *   **Audio (768)** : Features extraites via Wav2Vec/Hubert.
-    *   **Vidéo (1280)** : Features spatiales issues d'EfficientNet (enet_b0).
-    *   **Texte (768)** : Embeddings sémantiques issus de LLM (Llama/Gemma).
-    *   *Fusion* : Les modalités sont concaténées et normalisées (LayerNorm) avant d'entrer dans le réseau.
+<p align="center">
+  <img src="docs/arch.png" alt="Architecture TRM" width="300"/>
+</p>
 
-2.  **Transformer Récurrent (TRM)** :
-    *   Au lieu de traiter toute la vidéo d'un coup (ce qui exploserait la VRAM), le modèle traite la séquence frame par frame.
-    *   Il maintient une **mémoire persistante (Carry State)** composée de :
-        *   $z_H$ (High-level) : Contexte global et émotionnel à long terme.
-        *   $z_L$ (Low-level) : Mémoire de travail pour les calculs immédiats.
-    *   À chaque pas de temps, l'input est injecté et fusionné avec la mémoire via des blocs d'attention (SwiGLU + RoPE).
 
-3.  **Dual-Path Decision** :
-    *   **Shortcut Head** : Une voie rapide qui permet au modèle de réagir aux signaux évidents (ex: un cri fort) immédiatement.
-    *   **Deep Reasoning Head** : Une voie profonde qui analyse le contexte temporel stocké dans $z_H$ pour affiner la prédiction.
+*Architecture du Tiny Recursive Model (Source: Samsung SAIL)*
 
-## 🔬 Méthodologie et Données
+### 1. Entrée Multimodale Massive (2816 dims)
+Le modèle ingère un vecteur concaténé représentant l'état complet de l'utilisateur à un instant $t$ :
+*   **Audio (768 dims)** : Features extraites via **Dasheng** (Wav2Vec/Hubert optimisé).
+*   **Vidéo (1280 dims)** : Features spatiales issues d'**EfficientNet-B0** pré-entraîné sur AFEW (via HSEmotion).
+*   **Texte (768 dims)** : Embeddings sémantiques issus de **EmbeddingGemma** (Google).
+*   *Fusion* : Les modalités sont concaténées horizontalement et normalisées (LayerNorm).
 
-Ce projet utilise une méthodologie de transformation de données innovante pour convertir un dataset de classification (ex: CREMA-D) en problème de régression.
+### 2. Le Flux de Données (Pipeline)
+![Pipeline](docs/pipeline.png)
 
-### 1. Mapping Discret vers Continu
-Les émotions discrètes sont mappées sur l'espace Valence/Arousal (Modèle Circumplex de Russell) :
-*   **Colère (ANG)** $\rightarrow$ Valence Négative / Arousal Haut
-*   **Tristesse (SAD)** $\rightarrow$ Valence Négative / Arousal Bas
-*   **Joie (HAP)** $\rightarrow$ Valence Positive / Arousal Haut
+*   **Synchronisation** : Le système est cadencé sur la vidéo (30 FPS).
+*   **Audio** : Alignement temporel par fenêtres glissantes synchronisées avec les frames.
+*   **Texte** : Injection continue du contexte sémantique (dupliqué temporellement).
+*   **Récurrence** : À chaque pas de temps, le TRM met à jour sa mémoire latente $Z$ en fonction de l'entrée $X_t$ et de son état précédent $Z_{t-1}$.
+
+---
+
+## 🔬 Méthodologie et Entraînement
+
+Ce projet transforme un dataset de classification (CREMA-D) en problème de régression continue.
+
+### 1. Mapping Discret $\rightarrow$ Continu
+Les émotions discrètes sont projetées sur le modèle Circumplex de Russell via des centroïdes, avec ajout de **bruit gaussien** et modulation d'intensité pour simuler une distribution réelle :
+*   **Colère** $\rightarrow$ Valence Négative / Arousal Haut
+*   **Joie** $\rightarrow$ Valence Positive / Arousal Haut
+*   **Tristesse** $\rightarrow$ Valence Négative / Arousal Bas
 *   *Etc.*
 
-### 2. Gestion de l'Intensité & Data Augmentation
-Pour éviter que le modèle n'apprenne des points fixes par cœur, nous utilisons une stratégie de **Label Smoothing Spatial** :
-*   Chaque émotion possède un centre de gravité théorique.
-*   Ce centre est déplacé selon l'intensité annotée (`LO`, `MD`, `HI`).
-*   Pour les intensités inconnues (`XX`), une intensité aléatoire est simulée.
-*   Un **bruit gaussien** est ajouté à chaque échantillon.
-*   **Résultat :** Le modèle doit apprendre à viser des "zones" émotionnelles plutôt que des coordonnées exactes, ce qui améliore considérablement la généralisation.
+### 2. Fonction de Perte (Loss) Hybride
+Pour garantir à la fois la compréhension de la dynamique émotionnelle et la stabilité des prédictions, nous utilisons une Loss combinée :
 
-### 3. Fonction de Perte (Loss) Hybride
-L'entraînement minimise une combinaison de deux pertes :
-$$Loss = (1 - CCC) + \alpha \times MSE_{zone}$$
-*   **CCC (Concordance Correlation Coefficient)** : Maximise la corrélation temporelle et l'accord d'amplitude.
-*   **Zone Loss (MSE)** : Guide le modèle vers le bon quadrant émotionnel, crucial en début d'entraînement.
+$$Loss_{total} = Loss_{CCC} + 0.25 \times MSE_{real}$$
+
+*   **$Loss_{CCC}$ ($1 - CCC$)** : Maximise la corrélation de forme. Force le modèle à comprendre les variations (montée/descente) de l'émotion.
+*   **$MSE_{real}$ (Mean Squared Error)** : Agit comme une ancre pour empêcher les prédictions de dériver hors de l'espace $[-1, 1]$ et maintient l'échelle correcte.
+
+---
+
+## 📊 Résultats
+
+Le modèle a été entraîné sur 25 époques avec une séparation stricte par locuteur (Speaker Independent).
+
+| Métrique | Score Final (Ep 25) | Interprétation |
+| :--- | :--- | :--- |
+| **Train Loss** | 0.804 | Bonne convergence de l'apprentissage. |
+| **Val Loss** | 0.839 | Pas d'overfitting majeur (courbe stable). |
+| **Val CCC** | **0.255** | Corrélation positive significative sur des données synthétiques bruitées. |
+
+### Visualisations
+| Historique d'Apprentissage | Espace Valence/Arousal (Test) |
+| :---: | :---: |
+| ![History](docs/training_history.png) | ![AV Space](docs/av_space_plot.png) |
+| *La dynamique du CCC (courbe verte) montre une amélioration constante jusqu'à la fin.* | *Le modèle (rouge) couvre correctement les quadrants haut définis par la vérité terrain (bleu), mais se retrouve en difficulté pour la partie basse.* |
+
+---
 
 ## 🚀 Installation et Utilisation
 
 ### Pré-requis
-*   Python 3.10+
-*   PyTorch avec support CUDA
-*   `uv` (recommandé) ou `pip`
+*   Python 3.11+
+*   PyTorch (CUDA recommandé)
+*   `uv` ou `pip`
 
-### 1. Préparation des Données
-Le script de préparation scanne les fichiers bruts, extrait les embeddings (Audio/Vidéo/Texte) et génère un dataset `.pt` optimisé.
-
+### 1. Téléchargement des Dépendances
+Ce script télécharge automatiquement le dataset, les poids des encodeurs (Llama, Gemma, ENet) et les outils nécessaires.
 ```bash
-# Vérifiez les chemins dans src/config.py avant de lancer
-uv run prepare_data.py
+python downloads.py
 ```
-*Note : Cette étape peut être longue car elle effectue l'inférence des encodeurs (Audio/Vidéo/LLM).*
 
-### 2. Entraînement
-Lance la boucle d'entraînement avec validation croisée (Speaker Independent Split).
-
+### 2. Préparation des Données
+Extrait les features Audio/Vidéo/Texte et crée le dataset `.pt`.
 ```bash
-uv run train.py
-```
-Le script gère automatiquement :
-*   La normalisation des entrées.
-*   Le split Train/Val/Test (garantissant qu'un acteur n'est pas vu en train et en test).
-*   La sauvegarde du meilleur modèle.
-*   L'affichage des courbes de Loss et CCC.
-
-### 3. Visualisation
-À la fin de l'entraînement, deux graphiques sont générés :
-1.  **Historique d'apprentissage** : Évolution de la Loss et du score CCC.
-2.  **Espace Valence/Arousal** : Un scatter plot montrant les prédictions (rouge) vs la vérité terrain (bleu), permettant d'analyser la dynamique du modèle (ex: phénomène de régression vers la moyenne).
-
-## 📊 Résultats Observés
-
-Sur le dataset CREMA-D transformé :
-*   **CCC Score** : ~0.77 (Performance état de l'art pour cette approche).
-*   **Comportement** : Le modèle démontre une capacité robuste à distinguer les valences positives/négatives. Il adopte un comportement conservateur sur l'intensité (régression vers la moyenne), typique des approches par régression sur des données bruitées.
-
-## 📂 Structure du Projet
-
-```
-.
-├── src/
-│   ├── config.py           # Configuration globale (Hyperparamètres, Chemins)
-│   ├── data/
-│   │   ├── dataset.py      # Gestion du Dataset PyTorch & Collate
-│   │   └── preprocessor.py # Extraction des features & Mapping Émotionnel
-│   ├── models/
-│   │   ├── trm.py          # Architecture Tiny Recursive Model
-│   │   └── layers.py       # Blocs de base (Attention, RMSNorm, SwiGLU)
-│   └── training/
-│       ├── engine.py       # Boucle d'entraînement & Fonctions de Loss
-│       └── visualizer.py   # Outils de plotting (Matplotlib)
-├── train.py                # Point d'entrée principal
-├── prepare_data.py         # Script de pré-traitement
-└── README.md
+python prepare_data.py
 ```
 
-## 📜 Crédits
-*   **Architecture TRM** : Inspirée des travaux sur les *Recurrent Transformers* et *Adaptive Computation Time*.
-*   **Dataset** : Basé sur CREMA-D (Crowd-sourced Emotional Multimodal Actors Dataset).
-*   **Encoders** : Utilise des poids pré-entraînés pour l'extraction de features (Wav2Vec2, EfficientNet, Gemma/Llama).
+### 3. Entraînement (Optionnel)
+Si vous souhaitez ré-entraîner le modèle depuis zéro :
+```bash
+python train.py
+```
+
+### 4. Inférence Temps Réel
+Lance la webcam, enregistre l'audio et affiche l'émotion en direct.
+```bash
+python run_inference.py
+```
+
+---
+
+## 📥 Modèle Pré-entraîné
+
+Les poids du modèle entraîné (TRM) sont disponibles sur HuggingFace :
+🤗 **[HuggingFace: JusteLeo/AffectiveTRM](https://huggingface.co/JusteLeo/AffectiveTRM)**
+
+Téléchargez `emotion_model_sequential_av.pth` et placez-le à la racine du projet si vous ne voulez pas lancer l'entraînement.
+
+---
+
+## 📜 Crédits et Références
+
+Ce projet n'aurait pas été possible sans les travaux de recherche et les modèles open-source suivants :
+
+*   **Architecture TRM** : Basé sur *Tiny Recursive Models* (Samsung SAIL Montreal).
+    *   [GitHub Repository](https://github.com/SamsungSAILMontreal/TinyRecursiveModels)
+*   **Encodeur Audio** : *Dasheng* (DCASE 2023 Winner).
+    *   [GitHub Repository](https://github.com/RicherMans/Dasheng)
+*   **Encodeur Vidéo** : *HSEmotion* (EfficientNet-B0 sur AFEW).
+    *   [GitHub Repository](https://github.com/av-savchenko/hsemotion)
+*   **Encodeur Texte** : *EmbeddingGemma* (Google).
+    *   [HuggingFace Model](https://huggingface.co/google/embeddinggemma-300m)
+*   **Dataset** : *CREMA-D* (Crowd-sourced Emotional Multimodal Actors Dataset).
+    *   [GitHub Repository](https://github.com/CheyneyComputerScience/CREMA-D)
+---
+
+*Projet réalisé dans le cadre d'un Master 1 Électronique / IA.*

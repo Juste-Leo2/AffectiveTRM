@@ -73,7 +73,7 @@ class RealTimeEmotionTester:
         # Ici on suppose qu'il retourne le modèle ou qu'on peut l'utiliser
         # Dans votre code original, initialize_encoder renvoyait un objet ou chargeait des poids
         # On va adapter pour récupérer le modèle directement si possible, sinon on le recharge
-        self.video_model = torch.load(Config.VIDEO_MODEL_PATH, map_location=self.device)
+        self.video_model = torch.load(Config.VIDEO_MODEL_PATH, map_location=self.device, weights_only=False)
         if hasattr(self.video_model, 'classifier'): # Si c'est un modèle complet
             self.video_model.classifier = nn.Identity() # On veut les features (1280), pas la classif
         self.video_model.eval()
