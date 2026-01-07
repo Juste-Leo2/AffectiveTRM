@@ -89,7 +89,7 @@ Bien que l'architecture technique (TRM + Fusion Multimodale) soit fonctionnelle 
 
 Ce projet est une preuve de concept (PoC). Pour passer à un système robuste en production, voici les axes prioritaires :
 
-### 1. Données (Le nerf de la guerre)
+### 1. Données
 *   Abandonner le mapping artificiel (Classification $\to$ Régression).
 *   Utiliser des datasets annotés nativement en Valence/Arousal continu, tels que **RECOLA**, **SEWA** ou **MSP-IMPROV**. Cela permettrait au modèle d'apprendre de vraies nuances humaines plutôt que des centroïdes simulés.
 
