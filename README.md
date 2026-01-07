@@ -73,7 +73,36 @@ Le modèle a été entraîné sur 25 époques avec une séparation stricte par l
 | Historique d'Apprentissage | Espace Valence/Arousal (Test) |
 | :---: | :---: |
 | ![History](docs/training_history.png) | ![AV Space](docs/av_space_plot.png) |
-| *La dynamique du CCC (courbe verte) montre une amélioration constante jusqu'à la fin.* | *Le modèle (rouge) couvre correctement les quadrants haut définis par la vérité terrain (bleu), mais se retrouve en difficulté pour la partie basse.* |
+| *La dynamique du CCC (courbe verte) montre une amélioration constante jusqu'à la fin.* | *Le modèle (rouge) couvre correctement les quadrants haut définis par la vérité terrain (bleu), mais se retrouve en difficulté pour la partie en bas à droite.* |
+
+
+## ⚠️ Limitations et Observations (Post-Mortem)
+
+Bien que l'architecture technique (TRM + Fusion Multimodale) soit fonctionnelle sur CPU, des biais ont été observés lors de l'inférence en conditions réelles (Webcam) :
+
+1.  **Biais "Bas-Gauche" (Low Arousal / Negative Valence)** :
+    *   Le modèle tend à être conservateur et prédit majoritairement des états neutres ou légèrement négatifs.
+    *   Il peine à atteindre le quadrant "Haut-Droit" (Joie/Excitation) sans une exagération volontaire de l'utilisateur.
+    *   **Cause probable** : L'utilisation d'une **phrase neutre mise en cache** lors de l'inférence (pour économiser le CPU) prive le modèle de la modalité sémantique positive. De plus, le dataset d'entraînement (CREMA-D) est joué par des acteurs, créant un décalage (Domain Shift) avec des expressions naturelles devant une webcam.
+
+## 🔮 Pistes d'Amélioration (Roadmap)
+
+Ce projet est une preuve de concept (PoC). Pour passer à un système robuste en production, voici les axes prioritaires :
+
+### 1. Données (Le nerf de la guerre)
+*   Abandonner le mapping artificiel (Classification $\to$ Régression).
+*   Utiliser des datasets annotés nativement en Valence/Arousal continu, tels que **RECOLA**, **SEWA** ou **MSP-IMPROV**. Cela permettrait au modèle d'apprendre de vraies nuances humaines plutôt que des centroïdes simulés.
+
+### 2. Gestion du Texte (Alignement Temporel)
+*   Actuellement : Le texte est dupliqué globalement sur toute la séquence.
+*   Cible : Implémenter un **alignement mot-à-mot** (Word-Level Alignment). Le vecteur sémantique ne devrait changer que lorsque le mot est prononcé.
+*   Intégration d'un ASR léger (ex: **Vosk** ou **Whisper-Tiny**) pour générer le texte en temps réel au lieu d'utiliser une phrase d'ancrage neutre.
+
+### 3. Architecture
+*   Remplacer la concaténation simple par un mécanisme de **Cross-Attention** (le texte "interroge" la vidéo) pour mieux pondérer l'importance de chaque modalité selon le contexte (ex: ignorer la vidéo s'il fait sombre, ignorer l'audio s'il y a du bruit).
+
+
+
 
 ---
 
